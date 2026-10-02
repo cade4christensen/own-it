@@ -31,7 +31,7 @@
     hostKey: HOST ? (ls.get('ownit_host_key') || '') : '',
     nick: ls.get('ownit_nick') || '',
     avatar: ls.get('ownit_avatar') || AVATAR_KEYS[Math.floor(Math.random() * AVATAR_KEYS.length)] || '',
-    editing: false, editAns: false, confirmRestart: false, joining: false,
+    editing: false, editAns: false, confirmRestart: false, joining: false, autoSent: '',
   };
 
   /* ---------- helpers ---------- */
@@ -112,7 +112,8 @@
       .then(() => { if (btn) btn.disabled = false; render(); });
   }
   const vote = (id) => api('POST', 'vote', { answer_id: id }).catch(fail);
-  const advance = (action) => api('POST', 'host/advance', { action }).catch(fail);
+  // Sends where the game stood when the button was pressed, so a double click can't skip a round.
+  const advance = (action) => api('POST', 'host/advance', { action, phase: S.st.game.phase, round: S.st.game.round }).catch(fail);
   const removeAnswer = (id) => api('POST', 'host/remove', { answer_id: id }).catch(fail);
   function savePrompts(raw) {
     const items = raw.split('\n').map((line) => {
@@ -143,6 +144,18 @@
     const left = Math.ceil((ends - (Date.now() + S.skew)) / 1000);
     const t = !ends ? '' : left <= 0 ? "Time's up" : Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0');
     document.querySelectorAll('[data-timer]').forEach((n) => { if (n.textContent !== t) n.textContent = t; });
+    autoSubmit(ends && left <= 0);
+  }
+
+  // When the clock runs out, send whatever is typed so a half-written answer isn't lost.
+  function autoSubmit(timeUp) {
+    const st = S.st;
+    if (!timeUp || MODE !== 'player' || !st || !st.me || st.game.phase !== 'write') return;
+    const key = st.game.id + ':' + st.game.round, ta = stage.querySelector('textarea');
+    if (S.autoSent === key || !ta || !ta.value.trim() || ta.value.trim() === st.me.answer) return;
+    S.autoSent = key;
+    toast("Time's up. Your answer was sent as written.");
+    submitAnswer(ta.value, null);
   }
 
   // A quote with no question of its own is an excuse to rewrite.
@@ -364,6 +377,23 @@
     ];
   }
 
+  // The projector can't fit every answer, so it shows them one at a time while phones vote.
+  function spotlight() {
+    const every = 5000;
+    return listDyn(el('div', { class: 'spotlight' }), () => {
+      const n = (S.st.answers || []).length;
+      return n ? n + ':' + Math.floor(Date.now() / every) % n : '0';
+    }, () => {
+      const list = S.st.answers || [];
+      if (!list.length) return [el('p', { class: 'lede', text: 'No answers came in this round.' })];
+      const i = Math.floor(Date.now() / every) % list.length;
+      return [
+        el('div', { class: 'tag', text: 'Answer ' + (i + 1) + ' of ' + list.length }),
+        el('p', { class: 'text', text: list[i].text }),
+      ];
+    });
+  }
+
   function joinCode() {
     const box = el('div', { class: 'qr' });
     if (window.qrcode) {
@@ -419,10 +449,10 @@
     if (ph === 'vote') return [
       promptBlock(false),
       el('div', { class: 'row' }, [
-        textDyn(el('span', { class: 'count' }), () => S.st.voteCount + ' of ' + S.st.players + ' votes in'),
-        timerNode(),
+        textDyn(el('div', { class: 'big-count' }), () => S.st.voteCount + ' / ' + S.st.players),
+        el('span', { text: 'votes in' }), timerNode(),
       ]),
-      listDyn(el('ul', { class: 'answers' }), () => JSON.stringify(S.st.answers || []), () => {
+      SCREEN ? spotlight() : listDyn(el('ul', { class: 'answers' }), () => JSON.stringify(S.st.answers || []), () => {
         const list = S.st.answers || [];
         if (!list.length) return [el('li', { class: 'lede', text: 'No answers came in this round.' })];
         return list.map((a) => el('li', null, el('div', { class: 'answer' }, [
@@ -504,8 +534,14 @@
   }
 
   // A phone that was locked or in another app catches up the moment it comes back.
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) api('GET', 'state').catch(() => {}); });
-  setInterval(tickTimers, 500);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { keepAwake(); api('GET', 'state').catch(() => {}); } });
+  // Keep the screen on during the game, where the browser allows it.
+  function keepAwake() {
+    if (!navigator.wakeLock || document.hidden) return;
+    navigator.wakeLock.request('screen').catch(() => {});
+  }
+  keepAwake();
+  setInterval(() => { dyn.forEach((f) => f()); tickTimers(); }, 500);
   render();
   poll();
 })();

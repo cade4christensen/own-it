@@ -165,6 +165,9 @@ button.answer[aria-pressed="true"] { border-color: var(--ink); box-shadow: inset
 .award .nick { font-family: var(--display); font-weight: 800; font-size: 1.2em; overflow-wrap: anywhere; }
 .award .quote { font-family: var(--voice); font-style: italic; font-size: 1.25em; line-height: 1.2; overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) { .result .author { animation: none; } }
+.spotlight { display: flex; flex-direction: column; gap: 10px; min-height: 12rem; background: var(--card); border: 2px solid var(--line); border-radius: 6px; padding: 24px 28px; }
+.spotlight .text { font-size: clamp(1.6rem, 3.4vw, 3rem); line-height: 1.2; overflow-wrap: anywhere; animation: fadeup 0.4s ease both; }
+@media (prefers-reduced-motion: reduce) { .spotlight .text { animation: none; } }
 .podium-wrap { display: flex; flex-direction: column; gap: 20px; }
 .podium-wrap h1 { text-align: center; }
 .podium { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); align-items: end; gap: 10px; width: 100%; max-width: 620px; margin-inline: auto; padding-top: 8px; }

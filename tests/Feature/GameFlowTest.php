@@ -59,6 +59,25 @@ class GameFlowTest extends TestCase
         $end->assertJsonPath('awards.0.title', 'Answer of the game')->assertJsonPath('awards.0.nick', 'Ana')->assertJsonPath('awards.0.text', 'I missed it. Fixing it by noon.');
     }
 
+    public function test_a_repeated_host_click_never_skips_a_round(): void
+    {
+        $this->asHost()->postJson('/api/host/advance', ['action' => 'start']);
+        $this->asHost()->postJson('/api/host/advance', ['action' => 'vote']);
+        $this->asHost()->postJson('/api/host/advance', ['action' => 'reveal']);
+
+        $click = ['action' => 'next', 'phase' => 'reveal', 'round' => 0];
+        $this->asHost()->postJson('/api/host/advance', $click)->assertJsonPath('game.round', 1);
+        $this->asHost()->postJson('/api/host/advance', $click)->assertJsonPath('game.round', 1)->assertJsonPath('game.phase', 'write');
+        $this->asHost()->postJson('/api/host/advance', ['action' => 'reveal'])->assertJsonPath('game.phase', 'write');
+    }
+
+    public function test_two_players_with_the_same_name_are_told_apart(): void
+    {
+        $this->as(self::ANA)->postJson('/api/join', ['nick' => 'Sam'])->assertJsonPath('me.nick', 'Sam');
+        $this->as(self::BEN)->postJson('/api/join', ['nick' => 'sam'])->assertJsonPath('me.nick', 'sam 2');
+        $this->as(self::BEN)->postJson('/api/join', ['nick' => 'sam'])->assertJsonPath('me.nick', 'sam 2');
+    }
+
     public function test_only_the_host_key_can_run_the_game(): void
     {
         $this->as(self::ANA)->postJson('/api/host/advance', ['action' => 'start'])->assertForbidden();

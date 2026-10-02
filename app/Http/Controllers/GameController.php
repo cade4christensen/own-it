@@ -30,7 +30,7 @@ class GameController extends Controller
         $game = Game::current();
         Player::updateOrCreate(
             ['game_id' => $game->id, 'token' => $token],
-            ['nick' => trim($data['nick']), 'avatar' => $data['avatar'] ?? null],
+            ['nick' => $this->uniqueNick($game, $token, trim($data['nick'])), 'avatar' => $data['avatar'] ?? null],
         );
 
         return $this->snapshot($request, $game);
@@ -78,9 +78,29 @@ class GameController extends Controller
     public function advance(Request $request): JsonResponse
     {
         $this->authorizeHost($request);
-        $data = $request->validate(['action' => ['required', 'in:start,vote,reveal,next,end,new']]);
+        $data = $request->validate([
+            'action' => ['required', 'in:start,vote,reveal,next,end,new'],
+            'phase' => ['nullable', 'string'],
+            'round' => ['nullable', 'integer'],
+        ]);
         $game = Game::current();
         $now = (int) round(microtime(true) * 1000);
+
+        // A double click or a slow connection can send the same button twice. Only act
+        // when the game is still where the host's screen showed it, so a round is never skipped.
+        $allowedFrom = [
+            'start' => ['lobby'],
+            'vote' => ['write'],
+            'reveal' => ['vote'],
+            'next' => ['reveal'],
+            'end' => ['write', 'vote', 'reveal'],
+            'new' => ['lobby', 'write', 'vote', 'reveal', 'end'],
+        ][$data['action']];
+        $stale = (isset($data['phase']) && $data['phase'] !== $game->phase)
+            || (isset($data['round']) && (int) $data['round'] !== $game->round);
+        if ($stale || ! in_array($game->phase, $allowedFrom)) {
+            return $this->snapshot($request, $game);
+        }
 
         switch ($data['action']) {
             case 'start':
@@ -216,8 +236,9 @@ class GameController extends Controller
                         ? $authors->get($a->player_id)?->only(['nick', 'avatar'])
                         : null,
                 ])
-                // A stable shuffle, so the list doesn't give away who submitted first.
-                ->sortBy(fn (array $a) => $reveal ? -$a['votes'] : crc32($game->id.':'.$a['id']))
+                // Each phone gets its own stable shuffle, so no answer wins by being listed first
+                // and the order doesn't give away who submitted when.
+                ->sortBy(fn (array $a) => $reveal ? -$a['votes'] : crc32(($player?->id ?? 0).':'.$a['id']))
                 ->values();
         }
 
@@ -335,6 +356,20 @@ class GameController extends Controller
         }
 
         return $awards;
+    }
+
+    /**
+     * Two people picking the same name get "Sam" and "Sam 2", so the scoreboard stays readable.
+     */
+    private function uniqueNick(Game $game, string $token, string $nick): string
+    {
+        $taken = $game->players()->where('token', '!=', $token)->pluck('nick')->map(fn (string $n) => mb_strtolower($n));
+        $candidate = $nick;
+        for ($n = 2; $taken->contains(mb_strtolower($candidate)); $n++) {
+            $candidate = mb_substr($nick, 0, 20 - strlen(" $n"))." $n";
+        }
+
+        return $candidate;
     }
 
     private function token(Request $request): ?string
