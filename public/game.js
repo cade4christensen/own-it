@@ -246,7 +246,8 @@
       const rows = S.st.board || [], top = rows.length ? rows[0].score : 0;
       stage.classList.toggle('staged', top > 0);
       if (!top) return [el('h1', { text: 'Final scores' })];
-      const stand = rows.slice(0, 3).map((p, i) => ({ p, slot: i + 1, place: 1 + rows.filter((q) => q.score > p.score).length }));
+      // Nobody stands on the podium without a vote.
+      const stand = rows.slice(0, 3).filter((p) => p.score > 0).map((p, i) => ({ p, slot: i + 1, place: 1 + rows.filter((q) => q.score > p.score).length }));
       const names = rows.filter((p) => p.score === top).map((p) => p.nick);
       const title = names.length === 1 ? names[0] + ' wins' : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] + ' tie';
       return [
@@ -502,6 +503,8 @@
     if (metaEl.textContent !== meta) metaEl.textContent = meta;
   }
 
+  // A phone that was locked or in another app catches up the moment it comes back.
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) api('GET', 'state').catch(() => {}); });
   setInterval(tickTimers, 500);
   render();
   poll();
